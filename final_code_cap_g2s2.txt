@@ -1,0 +1,113 @@
+#include <Wire.h>0
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <DHT.h>
+#include <Servo.h>
+#include <TinyGsmClient.h>
+#include <SoftwareSerial.h>
+
+#define OLED_RESET 6
+Adafruit_SSD1306 display(OLED_RESET);
+
+#define DHTPIN 2
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+const int MQ9_PIN = A0;
+const int SERVO_PIN = 5;
+const int FAN_PIN = 3;
+const int SIM800_TX_PIN = 0; // Arduino D0
+const int SIM800_RX_PIN = 1; // Arduino D1
+
+SoftwareSerial sim800Serial(SIM800_TX_PIN, SIM800_RX_PIN);
+TinyGsm modem(sim800Serial);
+TinyGsmClient client(modem);
+
+void setup() {
+  Serial.begin(9600);
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  display.display();
+  delay(2000);
+  display.clearDisplay();
+
+  dht.begin();
+  servo.attach(SERVO_PIN);
+  pinMode(FAN_PIN, OUTPUT);
+
+  sim800Serial.begin(9600);
+  delay(1000);
+
+  modem.restart();
+  delay(1000);
+
+  Serial.println("GSM initialized");
+}
+
+void loop() {
+  float temperature = dht.readTemperature();
+  float humidity = dht.readHumidity();
+
+  int gasValue = analogRead(MQ9_PIN);
+
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+  display.setTextSize(2);
+
+  display.setCursor(0, 0);
+  display.print("MQ-9 Gas Sensor");
+
+  display.setTextSize(1);
+  display.setCursor(0, 20);
+  display.print("Gas Value: ");
+  display.print(gasValue);
+
+  display.setTextSize(1);
+  display.setCursor(0, 35);
+  display.print("DHT11 Sensor");
+
+  display.setTextSize(1);
+  display.setCursor(0, 50);
+  display.print("Temperature: ");
+  display.print(temperature);
+  display.print(" *C");
+
+  display.setTextSize(1);
+  display.setCursor(0, 65);
+  display.print("Humidity: ");
+  display.print(humidity);
+  display.print(" %");
+
+  display.display();
+
+  if (humidity > 50) {
+    servo.write(90); // Open the servo to 90 degrees
+  } else {
+    servo.write(0); // Close the servo to 0 degrees
+  }
+
+  if (gasValue > 600) {
+    digitalWrite(FAN_PIN, HIGH); // Turn on the fan
+  } else {
+    digitalWrite(FAN_PIN, LOW); // Turn off the fan
+  }
+
+  sendSMS(temperature, humidity, gasValue);
+
+  delay(2000);
+}
+
+void sendSMS(float temperature, float humidity, int gasValue) {
+  String message = "Temperature: " + String(temperature) + " *C\n";
+  message += "Humidity: " + String(humidity) + " %\n";
+  message += "Gas Value: " + String(gasValue);
+
+  if (modem.getSignalQuality() > 0) {
+    if (modem.sendSMS("RECIPIENT_NUMBER", message)) {
+      Serial.println("SMS sent successfully");
+    } else {
+      Serial.println("Failed to send SMS");
+    }
+  } else {
+    Serial.println("No network connection");
+  }
+}
